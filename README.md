@@ -1,4 +1,4 @@
-# Subtitle-Synchronizer
+# 天使神剑——同步模式
 
 ## 由来
 
@@ -8,7 +8,7 @@
 
 这个软件可以批量重命名字幕，让字幕跟视频的文件名对上。
 
-![](img/The Sword Synchronization Mode.png)
+![](https://github.com/AT-Aoi/Subtitle-Synchronizer/raw/master/img/The%20Sword%20Synchronization%20Mode.png)
 
 ## 环境需求
 
