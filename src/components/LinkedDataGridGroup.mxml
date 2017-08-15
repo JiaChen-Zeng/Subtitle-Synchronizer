@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Group xmlns:fx="http://ns.adobe.com/mxml/2009" 
+		  xmlns:s="library://ns.adobe.com/flex/spark" 
+		  xmlns:mx="library://ns.adobe.com/flex/mx"
+		  initialize="initializeHandler(event)">
+	
+	<!-- 让里面的DataGrid滚动同步的Group -->
+	
+	<fx:Script>
+		<![CDATA[
+			import mx.core.IVisualElement;
+			import mx.events.FlexEvent;
+			
+			import spark.components.DataGrid;
+			import spark.components.VScrollBar;
+			
+			private var dataGrids:Vector.<DataGrid>;
+			
+			
+			protected function initializeHandler(event:FlexEvent):void
+			{
+				//监听写在 mxml 里的 dataGrid 滚动事件
+				for (var i:int = 0; i < dataGrids.length; i++) 
+				{
+					addScrollEventListener(dataGrids[i]);
+				}
+			}
+			
+			override public function set mxmlContent(value:Array):void
+			{
+				super.mxmlContent = value;
+				
+				dataGrids = new <DataGrid>[];
+				
+				//把 mxml 里的 DataGrid 加入 dataGrids 里
+				var child:Object;
+				for (var i:int = 0; i < value.length; i++) 
+				{
+					child = value[i];
+					
+					if (child is DataGrid)
+					{
+						addDataGrid(child as DataGrid);
+					}
+				}
+			}
+			
+			override public function addElement(element:IVisualElement):IVisualElement
+			{
+				//把后来加的 DataGrid 放到 dataGrids 里，并监听滚动事件
+				if (element is DataGrid)
+				{
+					var dataGrid:DataGrid = element as DataGrid;
+					addDataGrid(dataGrid);
+					addScrollEventListener(dataGrid);
+				}
+				
+				return super.addElement(element);
+			}
+			
+			protected function addDataGrid(dataGrid:DataGrid):void
+			{
+				dataGrids.push(dataGrid);;
+			}
+			
+			protected function addScrollEventListener(dataGrid:DataGrid):void
+			{
+				dataGrid.scroller.verticalScrollBar.addEventListener(Event.CHANGE, dataGrid_scrollHandler);
+			}
+			
+			protected function dataGrid_scrollHandler(event:Event):void
+			{
+				var vScrollBar:VScrollBar = event.currentTarget as VScrollBar;
+				var scrollPosition:Number = vScrollBar.value;
+				
+				updateScrollPosition(scrollPosition);
+			}
+			
+			public function updateScrollPosition(value:int):void
+			{
+				//使所有 dataGrid 的滚动位置相同
+				for (var i:int = 0; i < dataGrids.length; i++) 
+				{
+					dataGrids[i].grid.verticalScrollPosition = value;
+				}
+			}
+		
+		]]>
+	</fx:Script>
+	
+</s:Group>

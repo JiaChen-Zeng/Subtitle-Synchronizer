@@ -1,0 +1,23 @@
+/* CSS file */
+@namespace s "library://ns.adobe.com/flex/spark";
+@namespace mx "library://ns.adobe.com/flex/mx";
+
+global {
+	fontFamily: "Microsoft YaHei, simhei";
+}
+
+.colorWhite {
+	color: #FFFFFF;
+}
+
+.help {
+	fontSize:		14px;
+	paddingTop:		10px;
+	paddingRight:	10px;
+	paddingBottom:	10px;
+	paddingLeft:	10px;
+}
+
+.QQLink {
+	fontSize: 16px;
+}

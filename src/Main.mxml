@@ -1,0 +1,521 @@
+<?xml version="1.0" encoding="utf-8"?>
+<local:MainBase xmlns:fx="http://ns.adobe.com/mxml/2009" 
+					   xmlns:s="library://ns.adobe.com/flex/spark" 
+					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   xmlns:components="components.*"
+					   xmlns:containers="moe.aoi.flex.containers.*"
+					   xmlns:models="models.*"
+					   xmlns:local="*"
+					   xmlns:zjc="moe.aoi"
+					   
+					   width="800" height="600"
+					   minWidth="500" minHeight="400"
+					   
+					   skinClass="skins.MainSkin"
+					   
+					   title="天使神剑(ザ•ソード)——同步模式(シンクロモード)"
+					   
+					   creationComplete="creationCompleteHandler(event)">
+	
+	<fx:Style source="css/Main.css"/>
+	
+	<fx:Declarations>
+		<fx:String id="help">　　这是一个自动把字幕对应修改成跟视频相同文件名的小工具，简略地说——字幕同步器。{'\n'}　　先指定要输出字幕的文件夹，然后添加好视频和字幕，如果左右两边的视频和字幕没有对应清楚的话，按↑↓来调整，最后确定即可。{'\n'}　　诶哆……如果你想修改视频名字而不是字幕的名字的话也可以的说，只要视频的地方选字幕，字幕的地方选视频就好了，请千万注意别搞乱掉了哦！{'\n'}　　有什么意见或建议可以向咱提出，遇到 BUG 一定要和咱说哦！点下咱的名字就行了→</fx:String>
+		
+		<s:ArrayList id="dataGridColumns">
+			<s:GridColumn dataField="_id" headerText="#" width="40"></s:GridColumn>
+			<s:GridColumn dataField="name" headerText="名称"></s:GridColumn>
+			<s:GridColumn dataField="extension" headerText="后缀名" width="50"></s:GridColumn>
+		</s:ArrayList>
+		<s:ArrayList id="dataProvider1"/>
+		<s:ArrayList id="dataProvider2"/>
+	</fx:Declarations>
+	
+	<fx:Script>
+		<![CDATA[
+			import moe.aoi.utils.DataGridUtil;
+			import moe.aoi.utils.FileReferenceUtil;
+			import moe.aoi.utils.FileUtil;
+			
+			import flash.net.registerClassAlias;
+			
+			import mx.collections.IList;
+			import mx.events.CloseEvent;
+			import mx.events.FlexEvent;
+			import mx.managers.PopUpManager;
+			
+			import spark.components.Alert;
+			import spark.components.DataGrid;
+			
+			import components.ProgressTitleWindow;
+			
+			import models.FileModel;
+			
+			import workers.BackgroundWorker;
+			import workers.Workers;
+			
+			private static const VERSION:String = 'v0.3.2';
+
+			private var currentTarget:DataGrid;
+			
+			private var videoDirectoryFile:File;
+			private var subtitleDirectoryFile:File;
+			private var outputDirectoryFile:File;
+			private var dataGridFile:File;
+			
+			private var backgroundWorker:Worker;
+			private var mainToBackgroundChannel:MessageChannel;
+			private var backgroundToMainChannel:MessageChannel;
+			private var isBackgroundWorkerReady:Boolean;
+
+			private var progressTitleWindow:ProgressTitleWindow;
+			
+			protected function creationCompleteHandler(event:FlexEvent):void
+			{
+//				test();
+				
+				Alert.OK_LABEL = '确定';
+				Alert.YES_LABEL = '是';
+				Alert.NO_LABEL = '否';
+				
+				videoDirectoryFile = new File();
+				videoDirectoryFile.addEventListener(Event.SELECT, videoDirectoryFile_selectHandler);
+				
+				subtitleDirectoryFile = new File();
+				subtitleDirectoryFile.addEventListener(Event.SELECT, subtitleDirectoryFile_selectHandler);
+				
+				outputDirectoryFile = new File();
+				outputDirectoryFile.addEventListener(Event.SELECT, outputDirectoryFile_selectHandler);
+				
+				dataGridFile = new File();
+				dataGridFile.addEventListener(FileListEvent.SELECT_MULTIPLE, dataGridFile_selectMultipleHandler);
+				
+				createBackgroundWorker();
+			}
+			
+			protected function test():void
+			{
+			}
+			
+			//==========创建BackgroundWorker=========>
+			private function createBackgroundWorker():void
+			{
+				backgroundWorker = WorkerDomain.current.createWorker(Workers.workers_BackgroundWorker, true);
+				
+				mainToBackgroundChannel = Worker.current.createMessageChannel(backgroundWorker);
+				backgroundToMainChannel = backgroundWorker.createMessageChannel(Worker.current);
+				
+				backgroundWorker.setSharedProperty('mainToBackgroundChannel', mainToBackgroundChannel);
+				backgroundWorker.setSharedProperty('backgroundToMainChannel', backgroundToMainChannel);
+				
+				backgroundToMainChannel.addEventListener(Event.CHANNEL_MESSAGE, backgroundToMainChannel_channelMessageHandler);
+				
+				backgroundWorker.start();
+				
+				registerClassAlias('models.FileModel', FileModel);
+			}
+			
+			protected function backgroundToMainChannel_channelMessageHandler(event:Event):void
+			{
+				if (backgroundToMainChannel.messageAvailable)
+				{
+					var head:String = backgroundToMainChannel.receive();
+					
+					if (head === BackgroundWorker.READY)
+					{
+						isBackgroundWorkerReady = true;
+					}
+					else if (head === BackgroundWorker.PROGRESS) 
+					{
+						var current:int = backgroundToMainChannel.receive();
+						var total:int = backgroundToMainChannel.receive();
+						
+						progressTitleWindow.setProgress(current, total);
+					}
+					else if (head === BackgroundWorker.COMPLETE)
+					{
+						PopUpManager.removePopUp(progressTitleWindow);
+						
+						Alert.show('字幕已经同步完成啦！', '耶，果然没傲娇（顺便告诉你咱喜欢娇一点的）');
+					}
+					else if (head === BackgroundWorker.ERROR) 
+					{
+						PopUpManager.removePopUp(progressTitleWindow);
+						
+						Alert.show('主人，咱刚才在捉蝴蝶，再试一次吧', '额');
+					}
+				}
+			}
+			//==========创建BackgroundWorker=========<
+			
+			//==========设置字幕输出文件夹=========>
+			protected function videoButton_clickHandler(event:MouseEvent):void
+			{
+				videoDirectoryFile.browseForDirectory('选择视频文件夹')
+			}
+			
+			protected function videoDirectoryFile_selectHandler(event:Event):void
+			{
+				var file:File = event.currentTarget as File;
+				videoTextInput.text = decodeURIComponent(file.url);
+				
+				var files:Array = getAllFiles(file);
+				currentTarget = dataGrid1;
+				addItems(files);
+			}
+			
+			protected function subtitleButton_clickHandler(event:MouseEvent):void
+			{
+				subtitleDirectoryFile.browseForDirectory('选择字幕文件夹');
+			}
+			
+			protected function subtitleDirectoryFile_selectHandler(event:Event):void
+			{
+				var file:File = event.currentTarget as File;
+				subtitleTextInput.text = decodeURIComponent(file.url);
+				
+				var files:Array = getAllFiles(file);
+				currentTarget = dataGrid2;
+				addItems(files);
+			}
+			
+			protected function getAllFiles(folder:File):Array
+			{
+				var files:Array = [];
+				FileUtil.walkDirectory(folder, function(_file:File):void
+				{
+					if (!_file.isDirectory)
+					{
+						files.push(_file);
+					}
+				});
+				
+				return files;
+			}
+			
+			protected function outputButton_clickHandler(event:MouseEvent):void
+			{
+				outputDirectoryFile.browseForDirectory('选择字幕输出文件夹')
+			}
+			
+			protected function outputDirectoryFile_selectHandler(event:Event):void
+			{
+				var file:File = event.currentTarget as File;
+				outputTextInput.text = decodeURIComponent(file.url);
+			}
+			//==========设置字幕输出文件夹=========<
+			
+			//==========处理表格的数据=========>
+			protected function onAddClick(event:MouseEvent, target:DataGrid):void
+			{
+				currentTarget = target;
+				dataGridFile.browseForOpenMultiple('添加文件');
+			}
+			
+			protected function onRemoveClick(event:MouseEvent, target:DataGrid):void
+			{
+				DataGridUtil.remove(target);
+				sortDataGridId(target);
+				linkedDataGridGroup.updateScrollPosition(target.scroller.verticalScrollBar.value);
+				target.grid.invalidateDisplayList();
+			}
+			
+			protected function onUpClick(event:MouseEvent, target:DataGrid):void
+			{
+				DataGridUtil.goUp(target);
+				sortDataGridId(target);
+				linkedDataGridGroup.updateScrollPosition(target.scroller.verticalScrollBar.value);
+			}
+			
+			protected function onDownClick(event:MouseEvent, target:DataGrid):void
+			{
+				DataGridUtil.goDown(target);
+				sortDataGridId(target);
+				linkedDataGridGroup.updateScrollPosition(target.scroller.verticalScrollBar.value);
+			}
+			
+			
+			protected function dataGridFile_selectMultipleHandler(event:FileListEvent):void
+			{
+				addItems(event.files);
+			}
+			
+			protected function addItems(files:Array):void
+			{
+				//把选择的所有文件都加到对应的 dataGrid 中
+				var currentFile:File;
+				var fileModel:FileModel;
+				for (var i:int = 0; i < files.length; i++) 
+				{
+					currentFile = files[i];
+					
+					//如果选择的文件不在 dataGrid 里，才添加进去
+					if (!isInIt(currentFile, currentTarget))
+					{
+						fileModel = new FileModel(0, FileReferenceUtil.getBaseName(currentFile), currentFile.extension, currentFile.url);
+						currentTarget.dataProvider.addItem(fileModel);
+					}
+				}
+				
+				sortDataGridId(currentTarget);
+				
+				//立即提交渲染，使其出现滚动条，grid 才可以设置 verticalScrollPosition
+				//currentTarget.grid.validateNow();
+				
+				//不用立即提交渲染，在下次渲染的时候再做
+				callLater(function():void {
+					DataGridUtil.adjustScrollPosition(currentTarget, currentTarget.dataProvider.length - 1);
+					linkedDataGridGroup.updateScrollPosition(currentTarget.grid.verticalScrollPosition);
+					
+					currentTarget = null;
+				});
+			}
+			
+			private function isInIt(currentFile:File, currentTarget:DataGrid):Boolean
+			{
+				//检查选择要加入的 file 是否已经在 dataGrid 里面了
+				var dataProvider:IList = currentTarget.dataProvider;
+				for (var i:int = 0; i < dataProvider.length; i++) 
+				{
+					if ((dataProvider.getItemAt(i) as FileModel).url === currentFile.url)
+					{
+						return true;
+					}
+				}
+				
+				return false;
+			}
+			
+			private function sortDataGridId(target:DataGrid):void
+			{
+				//让 id 从1~最后
+				var dataProvider:IList = target.dataProvider;
+				for (var i:int = 0; i < dataProvider.length; i++) 
+				{
+					(dataProvider.getItemAt(i) as FileModel)._id = i + 1;
+				}
+			}
+			
+			private function swapItem(target:DataGrid, itemIndex1:int, itemIndex2:int):void
+			{
+				var dataProvider:IList = target.dataProvider;
+				var item1:Object = dataProvider.getItemAt(itemIndex1);
+				var item2:Object = dataProvider.getItemAt(itemIndex2);
+				dataProvider.setItemAt(item1, itemIndex2);
+				dataProvider.setItemAt(item2, itemIndex1);
+			}
+			//==========处理表格的数据=========<
+			
+			//==========最后操作=========>
+			protected function okButton_clickHandler(event:MouseEvent):void
+			{
+				lastValidate();
+			}
+			
+			protected function resetButton_clickHandler(event:MouseEvent):void
+			{
+				dataProvider1.removeAll();
+				dataProvider2.removeAll();
+			}
+			
+			protected function linkButtion_clickHandler(event:MouseEvent):void
+			{
+				var urlRequest:URLRequest = new URLRequest('http://wpa.qq.com/msgrd?v=3&uin=445448106&site=qq&menu=yes');
+				navigateToURL(urlRequest);
+			}
+			
+			
+			private function lastValidate():void
+			{
+				var dataProvider1Length:int = dataProvider1.length;
+				var dataProvider2Length:int = dataProvider2.length;
+				var outputDirectory:String = outputTextInput.text;
+				
+				if (isBackgroundWorkerReady === false)
+				{
+					Alert.show('怎么回事，一定是咱的某处出现了 BUG，主人快向包子汇报，记得说明清楚遇到 BUG 的过程哦！\n错误: isBackgroundWorkerReady === false', '咱变得好奇怪了');
+					return;
+				}
+				else if (outputDirectory === '')
+				{
+					Alert.show('字幕输出文件夹还没指定呢，同步了咱也不知道放哪儿唔', '不是咱的问题哦');
+					return;
+				}
+				else if (!isValidDirectory(outputDirectory)) 
+				{
+					Alert.show('别乱写字幕输出文件夹呀', '不是咱的问题哦');
+					return;
+				}
+				else if (dataProvider1Length === 0 && dataProvider2Length === 0)
+				{
+					Alert.show('喂喂，视频和字幕都没选呢，你要咱同步什么呀？', '不是咱的问题哦');
+					return;
+				}
+				else if (dataProvider1Length === 0)
+				{
+					Alert.show('喂喂，视频还没选呢，你要咱同步什么呀？', '不是咱的问题哦');
+					return;
+				}
+				else if (dataProvider2Length === 0)
+				{
+					Alert.show('喂喂，字幕还没选呢，你要咱同步什么呀？', '不是咱的问题哦');
+					return;
+				}
+				else if (dataProvider1Length !== dataProvider2Length) 
+				{
+					Alert.show('视频和字幕个数不一呀，真的要同步吗', '如果欧尼酱要的话……可以哦', Alert.YES|Alert.NO, this, differentComfirm_closeHandler);
+					//WorkerUtil.block()
+					return;
+				}
+				
+				//输出文件夹不存在时自动提示弄得好乱，没有阻塞，只能各种回调
+				if (!isDirectoryExist(outputDirectory)) 
+				{
+					Alert.show('指定的字幕输出文件夹不存在，要自动创建吗？', '哼，才不是特意为你做的呢', Alert.YES|Alert.NO, this, directoryCreationComfirm_closeHandler);
+					return;
+				}
+				
+				synchronizeSubtitles();
+			}
+			
+			private function synchronizeSubtitles():void
+			{
+				progressTitleWindow = PopUpManager.createPopUp(this, ProgressTitleWindow, true) as ProgressTitleWindow;
+				PopUpManager.centerPopUp(progressTitleWindow);
+				
+				mainToBackgroundChannel.send(BackgroundWorker.SYNCHRONIZE_SUBTITLES);
+				mainToBackgroundChannel.send(dataProvider1);
+				mainToBackgroundChannel.send(dataProvider2);
+				mainToBackgroundChannel.send(outputTextInput.text);
+				mainToBackgroundChannel.send(videoTextInput.text);
+			}
+			
+			private function differentComfirm_closeHandler(event:CloseEvent):void
+			{
+				if (event.detail === Alert.YES)//巨坑，spark 的 Alert 常量对应不对？后来突然又对了，可能是之前导入了 mx 的 Alert 混乱了
+				{
+					if (!isDirectoryExist(outputTextInput.text))
+					{
+						Alert.show('指定的字幕输出文件夹不存在，要自动创建吗？', '哼，才不是特意为你做的呢', Alert.YES|Alert.NO, this, directoryCreationComfirm_closeHandler);
+						return;
+					}
+					
+					synchronizeSubtitles();
+				}
+			}
+			
+			private function directoryCreationComfirm_closeHandler(event:CloseEvent):void
+			{
+				if (event.detail === Alert.YES)
+				{
+					synchronizeSubtitles();
+				}
+			}
+			
+			private function isValidDirectory(outputDirectory:String):Boolean
+			{
+				try
+				{
+					var file:File = new File(outputDirectory);
+				}
+				catch(error:Error) 
+				{
+					//乱写的 url
+					if (error)
+					{
+						return false;
+					}
+				}
+
+				return !file.exists || file.isDirectory;//新目录 或 已存在的目录都可以
+			}
+			
+			private function isDirectoryExist(outputDirectory:String):Boolean
+			{
+				return new File(outputDirectory).exists;
+			}
+			//==========最后操作=========<
+		]]>
+	</fx:Script>
+	
+		<local:header>
+			
+			<s:HGroup width="100%" verticalAlign="middle">
+				<s:Label text="视频文件夹（可选）" styleName="colorWhite"/>
+				<s:TextInput id="videoTextInput" width="100%" editable="false"/>
+				<s:Button id="videoButton" label="选择" click="videoButton_clickHandler(event)"/>
+			</s:HGroup>
+			
+			<s:HGroup width="100%" verticalAlign="middle">
+				<s:Label text="字幕文件夹（可选）" styleName="colorWhite"/>
+				<s:TextInput id="subtitleTextInput" width="100%" editable="false"/>
+				<s:Button id="subtitleButton" label="选择" click="subtitleButton_clickHandler(event)"/>
+			</s:HGroup>
+			
+			<s:HGroup width="100%" verticalAlign="middle">
+				<s:Label text="字幕输出文件夹" styleName="colorWhite" click="focusManager.setFocus(outputTextInput);"/>
+				<s:TextInput id="outputTextInput" width="100%"/>
+				<s:Button id="outputButton" label="选择" click="outputButton_clickHandler(event)"/>
+			</s:HGroup>
+			
+		</local:header>
+	
+	<local:layout>
+		<s:VerticalLayout/>
+	</local:layout>
+	
+		<s:Group width="100%">
+			<s:Label left="0" verticalCenter="0" text="视频：" styleName="colorWhite"/>
+			<s:HGroup left="45" gap="0">
+				<s:Button id="add1"		label="+" width="34" height="34" click="onAddClick(event, dataGrid1)"/>
+				<s:Button id="remove1"	label="-" width="34" height="34" click="onRemoveClick(event, dataGrid1)"/>
+				<s:Button id="up1"		label="↑" width="34" height="34" click="onUpClick(event, dataGrid1)"/>
+				<s:Button id="down1"	label="↓" width="34" height="34" click="onDownClick(event, dataGrid1)"/>
+			</s:HGroup>
+			
+			<s:Label right="0" verticalCenter="0" text="：字幕" styleName="colorWhite"/>
+			<s:HGroup right="45" gap="0">
+				<s:Button id="add2"		label="+" width="34" height="34" click="onAddClick(event, dataGrid2)"/>
+				<s:Button id="remove2"	label="-" width="34" height="34" click="onRemoveClick(event, dataGrid2)"/>
+				<s:Button id="up2"		label="↑" width="34" height="34" click="onUpClick(event, dataGrid2)"/>
+				<s:Button id="down2"	label="↓" width="34" height="34" click="onDownClick(event, dataGrid2)"/>
+			</s:HGroup>
+		</s:Group>
+	
+		<components:LinkedDataGridGroup id="linkedDataGridGroup" width="100%" height="100%">
+			<components:layout>
+				<s:BasicLayout/>
+			</components:layout>
+			<s:DataGrid id="dataGrid1" left="0" width="49%" height="100%"
+						columns="{dataGridColumns}" dataProvider="{dataProvider1}"
+						resizableColumns="false"/>
+			<s:DataGrid id="dataGrid2" right="0" width="49%" height="100%"
+						columns="{dataGridColumns}" dataProvider="{dataProvider2}"
+						resizableColumns="false"/>
+		</components:LinkedDataGridGroup>
+		
+	<local:footer>
+		
+		<s:HGroup id="controlButtonGroup" width="100%" horizontalAlign="center" gap="50">
+			<s:Button label="确定" click="okButton_clickHandler(event)"/>
+			<s:Button label="重置" click="resetButton_clickHandler(event)"/>
+		</s:HGroup>
+		
+		<containers:FoldContainer id="borderContainer" width="100%"
+								  borderColor="0xCCCCCC"
+								  folded="true">
+			<containers:layout>
+				<s:BasicLayout/>
+			</containers:layout>
+			<!-- 创建个自定义的 FoldContainer，貌似可以用 PopUpAnchor -->
+			<s:Label width="100%" styleName="help" text="{help}"/>
+			
+			<mx:LinkButton right="10" bottom="10"
+						   styleName="QQLink"
+						   label="{Main.VERSION + ' By 彩月葵☆彡'}"
+						   click="linkButtion_clickHandler(event)"/>
+		</containers:FoldContainer>
+		
+	</local:footer>
+		
+</local:MainBase>
