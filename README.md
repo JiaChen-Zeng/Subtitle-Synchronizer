@@ -8,16 +8,16 @@
 
 这个软件可以批量重命名字幕，让字幕跟视频的文件名对上。
 
-![](/img/天使神剑——同步模式（字幕同步器）/The Sword Synchronization Mode.png)
+![](img/The Sword Synchronization Mode.png)
 
 ## 环境需求
 
 Windows 或 Mac OS 下，Adobe AIR 12 以上版本。
-在 Windows 下使用测试通过。
+在 Windows 下测试通过。
 
 ## 下载
 
-[天使神剑——同步模式v0.3.2.air](/dl/天使神剑——同步模式v0.3.2.air)
+[天使神剑——同步模式v0.3.2.air](https://github.com/AT-Aoi/Subtitle-Synchronizer/releases/download/0.3.2/The-Sword-Synchronization-Mode.v0.3.2.air)
 
 ## 历史
 
